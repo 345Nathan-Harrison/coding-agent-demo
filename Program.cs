@@ -1,41 +1,33 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using OpenAI;
+using OpenAI.Chat;
 
 namespace WordDefinitionApp
 {
     class Program
     {
-        // Simple dictionary with common word definitions
-        private static readonly Dictionary<string, string> WordDictionary = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase)
-        {
-            {"apple", "A round fruit with red, green, or yellow skin and white flesh"},
-            {"book", "A set of written or printed pages bound together"},
-            {"cat", "A small domesticated carnivorous mammal with soft fur"},
-            {"dog", "A domesticated carnivorous mammal that typically has a long snout"},
-            {"house", "A building for human habitation"},
-            {"water", "A colorless, transparent, odorless liquid that forms seas, lakes, rivers, and rain"},
-            {"tree", "A woody perennial plant, typically having a main trunk"},
-            {"car", "A road vehicle, typically with four wheels, powered by an internal combustion engine"},
-            {"computer", "An electronic device for storing and processing data"},
-            {"phone", "A device used for transmitting speech over a distance"},
-            {"love", "An intense feeling of deep affection"},
-            {"happy", "Feeling or showing pleasure or contentment"},
-            {"sad", "Feeling or showing sorrow; unhappy"},
-            {"run", "Move at a speed faster than a walk"},
-            {"walk", "Move at a regular pace by lifting and setting down each foot"},
-            {"sun", "The star around which the earth orbits"},
-            {"moon", "The natural satellite of the earth"},
-            {"ocean", "A very large expanse of sea"},
-            {"mountain", "A large natural elevation of the earth's surface"},
-            {"river", "A large natural stream of water flowing in a channel"}
-        };
+        private static OpenAIClient? _openAIClient;
 
-        static void Main(string[] args)
+        static async Task Main(string[] args)
         {
             Console.WriteLine("Welcome to the Word Definition App!");
-            Console.WriteLine("Enter a single word to get its definition.");
+            Console.WriteLine("Enter a single word to get its definition powered by OpenAI.");
             Console.WriteLine();
+
+            // Initialize OpenAI client
+            string? apiKey = Environment.GetEnvironmentVariable("OPENAI_API_KEY");
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                Console.WriteLine("Error: OPENAI_API_KEY environment variable not set.");
+                Console.WriteLine("Please set your OpenAI API key as an environment variable:");
+                Console.WriteLine("export OPENAI_API_KEY=your_api_key_here");
+                return;
+            }
+
+            _openAIClient = new OpenAIClient(apiKey);
 
             bool continueApp = true;
 
@@ -59,16 +51,19 @@ namespace WordDefinitionApp
                     continue;
                 }
 
-                // Look up the word definition
-                string word = input.Trim().ToLower();
-                if (WordDictionary.TryGetValue(word, out string? definition))
+                // Look up the word definition using OpenAI
+                string word = input.Trim();
+                try
                 {
-                    Console.WriteLine($"\nDefinition of '{word}': {definition}");
+                    Console.WriteLine($"\nLooking up definition for '{word}'...");
+                    string definition = await GetWordDefinitionAsync(word);
+                    Console.WriteLine($"Definition of '{word}': {definition}");
                 }
-                else
+                catch (Exception ex)
                 {
-                    Console.WriteLine($"\nSorry, I don't have a definition for '{word}' in my dictionary.");
-                    Console.WriteLine("Try words like: apple, book, cat, dog, house, water, etc.");
+                    Console.WriteLine($"\nSorry, I couldn't get a definition for '{word}' at this time.");
+                    Console.WriteLine($"Error: {ex.Message}");
+                    Console.WriteLine("Please try again or try a different word.");
                 }
 
                 Console.WriteLine();
@@ -97,6 +92,29 @@ namespace WordDefinitionApp
             }
 
             Console.WriteLine("Thank you for using the Word Definition App!");
+        }
+
+        private static async Task<string> GetWordDefinitionAsync(string word)
+        {
+            if (_openAIClient == null)
+                throw new InvalidOperationException("OpenAI client not initialized");
+
+            var chatClient = _openAIClient.GetChatClient("gpt-3.5-turbo");
+            
+            var messages = new List<ChatMessage>
+            {
+                ChatMessage.CreateSystemMessage("You are a helpful dictionary assistant. Provide clear, concise definitions for words. Keep definitions to 1-2 sentences and focus on the most common meaning."),
+                ChatMessage.CreateUserMessage($"Define the word '{word}' in simple terms.")
+            };
+
+            var completion = await chatClient.CompleteChatAsync(messages);
+            
+            if (completion?.Value?.Content?.Count > 0)
+            {
+                return completion.Value.Content[0].Text.Trim();
+            }
+            
+            throw new Exception("No definition received from OpenAI");
         }
 
         private static bool IsValidSingleWord(string input)
